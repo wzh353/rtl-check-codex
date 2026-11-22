@@ -1,0 +1,24 @@
+{
+  "top": "blink_tb",
+  "sources": ["mes50hp_blink.v"],
+  "testbenches": ["blink_tb.sv"],
+  "passMarker": "PANGO_BLINK_PASS",
+  "repairFiles": ["mes50hp_blink.v"],
+  "specification": "spec.txt",
+  "validation": {
+    "top": "blink_holdout",
+    "testbenches": ["blink_holdout.sv"],
+    "passMarker": "PANGO_BLINK_HOLDOUT_PASS"
+  },
+  "synthesis": {
+    "engine": "pango",
+    "top": "mes50hp_blink",
+    "family": "Logos",
+    "device": "PGL50H",
+    "speedGrade": "-6",
+    "package": "FBG484",
+    "fdc": "mes50hp.fdc",
+    "board": { "requireAllPins": true },
+    "timing": { "clocks": { "board_clk": 20 } }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "explanation": {"type": "string"},
+    "edits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"},
+          "before": {"type": "string"},
+          "after": {"type": "string"}
+        },
+        "required": ["path", "before", "after"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["explanation", "edits"],
+  "additionalProperties": false
+}

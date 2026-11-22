@@ -1,0 +1,34 @@
+{
+  "synthesis": {
+    "family": "Cyclone IV E",
+    "device": "EP4CE6E22C8",
+    "timing": {
+      "clocks": {
+        "clk": 14
+      },
+      "sdcFiles": [
+        "product.sdc"
+      ],
+      "minSetupSlackNs": 2.5
+    },
+    "top": "product_pipe"
+  },
+  "sources": [
+    "product_pipe.sv"
+  ],
+  "testbenches": [
+    "product_tb.sv"
+  ],
+  "specification": "spec.txt",
+  "repairFiles": [
+    "product_pipe.sv"
+  ],
+  "top": "product_tb",
+  "validation": {
+    "passMarker": "TIMING_DEMO_REFERENCE_PASS",
+    "testbenches": [
+      "product_reference_tb.sv"
+    ],
+    "top": "product_reference_tb"
+  }
+}

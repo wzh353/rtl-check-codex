@@ -1,0 +1,64 @@
+{
+  "specification": "spec.txt",
+  "regressions": [
+    {
+      "top": "adder_tb",
+      "id": "narrow-in-range",
+      "defines": [
+        "CASE_WIDTH=5",
+        "SMALL_CASE=1"
+      ],
+      "testbenches": [
+        "adder_tb.sv"
+      ]
+    },
+    {
+      "id": "wide-boundary",
+      "waveform": {
+        "maxEvents": 6,
+        "signals": [
+          "adder_tb.a",
+          "adder_tb.b",
+          "adder_tb.y",
+          "adder_tb.dut.total"
+        ]
+      },
+      "top": "adder_tb",
+      "testbenches": [
+        "adder_tb.sv"
+      ],
+      "simulator": {
+        "engine": "modelsim"
+      },
+      "defines": [
+        "CASE_WIDTH=12"
+      ]
+    }
+  ],
+  "defines": [
+    "CASE_WIDTH=8",
+    "SMALL_CASE=0"
+  ],
+  "synthesis": {
+    "device": "EP4CE6E22C8",
+    "top": "saturating_add",
+    "family": "Cyclone IV E"
+  },
+  "testbenches": [
+    "adder_tb.sv"
+  ],
+  "validation": {
+    "testbenches": [
+      "adder_holdout.sv"
+    ],
+    "top": "adder_holdout",
+    "passMarker": "ADDER_HOLDOUT_PASS"
+  },
+  "top": "adder_tb",
+  "repairFiles": [
+    "saturating_add.sv"
+  ],
+  "sources": [
+    "saturating_add.sv"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "top": "counter_tb",
+  "sources": [
+    "counter.sv"
+  ],
+  "testbenches": [
+    "counter_tb.sv"
+  ],
+  "specification": "spec.txt",
+  "validation": {
+    "top": "counter_validation_tb",
+    "testbenches": [
+      "counter_validation_tb.sv"
+    ],
+    "passMarker": "VALIDATION_PASS"
+  },
+  "repairFiles": [
+    "counter.sv"
+  ],
+  "waveform": {
+    "maxEvents": 6,
+    "signals": [
+      "counter_tb.clk",
+      "counter_tb.rst_n",
+      "counter_tb.en",
+      "counter_tb.count"
+    ]
+  }
+}

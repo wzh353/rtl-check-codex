@@ -1,0 +1,7 @@
+The MES50HP blinker has exactly three external ports, clk, rst_n, and led.
+clk is the board's 50 MHz oscillator, rst_n is the active-low KEY1 reset,
+and led drives the active-high LED1. Keep the fixed board constraints.
+Synchronize release of reset over two rising clock edges. The counter
+clears synchronously while reset is active. After reset, increment it by
+one on each rising edge. led is the most significant counter bit.
+The default COUNTER_BITS is 25. The simulations use smaller widths.

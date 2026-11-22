@@ -1,0 +1,25 @@
+{
+  "cases": [
+    {
+      "id": "mes50hp-extra-port",
+      "config": "mes50hp/rtlcheck.json",
+      "mutations": [
+        {
+          "path": "mes50hp_blink.v",
+          "before": "output wire led",
+          "after": "output wire led,\n    output wire spare"
+        },
+        {
+          "path": "mes50hp_blink.v",
+          "before": "assign led = ticks[COUNTER_BITS-1];",
+          "after": "assign led = ticks[COUNTER_BITS-1];\n    assign spare = ticks[0];"
+        }
+      ],
+      "failure": {
+        "stage": "fit",
+        "reason": "board_mismatch",
+        "messageContains": "spare"
+      }
+    }
+  ]
+}

@@ -1,0 +1,150 @@
+{
+  "cases": [
+    {
+      "mutations": [
+        {
+          "after": "count +;",
+          "before": "count + 8'd1;",
+          "path": "counter.sv"
+        }
+      ],
+      "id": "compile-expression",
+      "failure": {
+        "stage": "compile",
+        "messageContains": "syntax error"
+      },
+      "config": "counter/rtlcheck.json"
+    },
+    {
+      "mutations": [
+        {
+          "after": "count + 8'd2",
+          "before": "count + 8'd1",
+          "path": "counter.sv"
+        }
+      ],
+      "id": "counter-step",
+      "failure": {
+        "stage": "simulate",
+        "messageContains": "expected=1 actual=2"
+      },
+      "config": "counter/rtlcheck.json"
+    },
+    {
+      "mutations": [
+        {
+          "after": "count - step",
+          "before": "count + step",
+          "path": "counter.sv"
+        },
+        {
+          "after": "assign value = ;",
+          "before": "assign value = 8'd1;",
+          "path": "step_value.sv"
+        }
+      ],
+      "id": "two-file-counter",
+      "failure": {
+        "stage": "compile",
+        "messageContains": "syntax error"
+      },
+      "config": "multi/rtlcheck.json"
+    },
+    {
+      "mutations": [
+        {
+          "after": "posedge clk or negedge rst_n)",
+          "before": "posedge clk)",
+          "path": "counter.sv"
+        }
+      ],
+      "id": "validation-reset",
+      "failure": {
+        "stage": "validation",
+        "messageContains": "independent reset check"
+      },
+      "config": "counter/rtlcheck.json"
+    },
+    {
+      "mutations": [
+        {
+          "after": "assign in_ready = used < 3'd4;",
+          "before": "assign in_ready = (used < 3'd4) || pop;",
+          "path": "stream_fifo.sv"
+        }
+      ],
+      "id": "fifo-full-handshake",
+      "failure": {
+        "stage": "simulate",
+        "messageContains": "used=4 in_ready=0"
+      },
+      "config": "fifo/rtlcheck.json"
+    },
+    {
+      "mutations": [
+        {
+          "after": "module saturating_add #(parameter integer WIDTH = 8) (\n    input  logic signed [WIDTH-1:0] a, b,\n    output logic signed [WIDTH-1:0] y\n);\n    wire signed [WIDTH:0] total = $signed({a[WIDTH-1], a}) + $signed({b[WIDTH-1], b});\n    assign y = total > 127 ? 127 : total < -128 ? -128 : total[WIDTH-1:0];\nendmodule",
+          "before": "module saturating_add #(parameter integer WIDTH = 8) (\n    input  logic signed [WIDTH-1:0] a, b,\n    output logic signed [WIDTH-1:0] y\n);\n    wire signed [WIDTH:0] total = $signed({a[WIDTH-1], a}) + $signed({b[WIDTH-1], b});\n    localparam logic signed [WIDTH-1:0] MAX_VALUE = {1'b0, {(WIDTH-1){1'b1}}};\n    localparam logic signed [WIDTH-1:0] MIN_VALUE = {1'b1, {(WIDTH-1){1'b0}}};\n\n    // The sum fits in WIDTH bits when its two highest bits agree.\n    wire overflow = total[WIDTH] ^ total[WIDTH-1];\n    assign y = overflow ? (total[WIDTH] ? MIN_VALUE : MAX_VALUE) : total[WIDTH-1:0];\nendmodule",
+          "path": "saturating_add.sv"
+        }
+      ],
+      "id": "wide-saturation",
+      "failure": {
+        "regression": "wide-boundary",
+        "messageContains": "expected=2047 actual=127",
+        "stage": "regression"
+      },
+      "config": "width/rtlcheck.json"
+    },
+    {
+      "mutations": [
+        {
+          "after": "count + 8'd2",
+          "before": "count + 8'd1",
+          "path": "counter.sv"
+        }
+      ],
+      "id": "quartus-stuck-pin",
+      "failure": {
+        "stage": "synthesize",
+        "code": 13410
+      },
+      "config": "synth/rtlcheck.json"
+    },
+    {
+      "mutations": [
+        {
+          "after": "input  logic       ena,",
+          "before": "input  logic       en,",
+          "path": "counter.sv"
+        },
+        {
+          "after": "else if (ena)",
+          "before": "else if (en)",
+          "path": "counter.sv"
+        }
+      ],
+      "id": "board-enable-pin",
+      "failure": {
+        "reason": "board_mismatch",
+        "stage": "fit"
+      },
+      "config": "counter/board.json"
+    },
+    {
+      "mutations": [
+        {
+          "after": "module product_pipe(input logic clk, rst_n, input logic [7:0] a, b, c, output logic [23:0] y);\n    logic [23:0] stage_one;\n    always_ff @(posedge clk) begin\n        if (!rst_n) begin\n            stage_one <= '0;\n            y <= '0;\n        end else begin\n            stage_one <= a * b * c;\n            y <= stage_one;\n        end\n    end\nendmodule",
+          "before": "module product_pipe(input logic clk, rst_n, input logic [7:0] a, b, c, output logic [23:0] y);\n    logic [15:0] ab;\n    logic [7:0] c_delayed;\n    always_ff @(posedge clk) begin\n        if (!rst_n) begin\n            ab <= '0;\n            c_delayed <= '0;\n            y <= '0;\n        end else begin\n            ab <= a * b;\n            c_delayed <= c;\n            y <= ab * c_delayed;\n        end\n    end\nendmodule",
+          "path": "product_pipe.sv"
+        }
+      ],
+      "id": "pipeline-slack",
+      "failure": {
+        "reason": "slack_violation",
+        "stage": "timing"
+      },
+      "config": "pipe/rtlcheck.json"
+    }
+  ]
+}

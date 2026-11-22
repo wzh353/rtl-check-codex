@@ -1,0 +1,19 @@
+# MES50HP standard board, PGL50H-6IFBG484. Clock P20, KEY1 K18, LED1 B2.
+create_clock -name {board_clk} [get_ports {clk}] -period {20} -waveform {0 10}
+set_false_path -from [get_ports {rst_n}]
+set_false_path -to [get_ports {led}]
+
+define_attribute {p:clk} {PAP_IO_DIRECTION} {Input}
+define_attribute {p:clk} {PAP_IO_LOC} {P20}
+define_attribute {p:clk} {PAP_IO_VCCIO} {3.3}
+define_attribute {p:clk} {PAP_IO_STANDARD} {LVCMOS33}
+
+define_attribute {p:rst_n} {PAP_IO_DIRECTION} {Input}
+define_attribute {p:rst_n} {PAP_IO_LOC} {K18}
+define_attribute {p:rst_n} {PAP_IO_VCCIO} {3.3}
+define_attribute {p:rst_n} {PAP_IO_STANDARD} {LVCMOS33}
+
+define_attribute {p:led} {PAP_IO_DIRECTION} {Output}
+define_attribute {p:led} {PAP_IO_LOC} {B2}
+define_attribute {p:led} {PAP_IO_VCCIO} {3.3}
+define_attribute {p:led} {PAP_IO_STANDARD} {LVCMOS33}

@@ -1,0 +1,1 @@
+Add signed two-complement operands a and b for any WIDTH of at least 2. Return the exact mathematical sum when representable in signed WIDTH bits, otherwise clamp to the signed WIDTH-bit maximum or minimum. Preserve the combinational interface, signed behavior and WIDTH parameter.

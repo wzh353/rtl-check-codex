@@ -1,0 +1,5 @@
+The module is an unsigned 8-bit synchronous counter.
+At each rising edge of clk:
+- If rst_n is low, count becomes 0, regardless of en.
+- Otherwise, if en is high, count increments by one, wrapping from 255 to 0.
+- Otherwise, count holds its previous value.

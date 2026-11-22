@@ -1,0 +1,36 @@
+{
+  "top": "counter_tb",
+  "sources": [
+    "counter.sv"
+  ],
+  "testbenches": [
+    "counter_tb.sv"
+  ],
+  "specification": "spec.txt",
+  "validation": {
+    "top": "counter_validation_tb",
+    "testbenches": [
+      "counter_validation_tb.sv"
+    ],
+    "passMarker": "VALIDATION_PASS"
+  },
+  "repairFiles": [
+    "counter.sv"
+  ],
+  "synthesis": {
+    "top": "counter",
+    "timing": {
+      "sdcFiles": [
+        "board.sdc"
+      ],
+      "clocks": {
+        "clk": 20
+      }
+    },
+    "board": {
+      "qsf": "board.qsf"
+    },
+    "family": "Cyclone IV E",
+    "device": "EP4CE6E22C8"
+  }
+}

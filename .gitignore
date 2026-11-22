@@ -1,0 +1,6 @@
+node_modules/
+.rtlcheck/
+.rtlcheck-batch/
+.rtlcheck-evaluation/
+/tmp/
+/.codex/config.toml

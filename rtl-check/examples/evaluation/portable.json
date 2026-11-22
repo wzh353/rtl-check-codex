@@ -1,0 +1,69 @@
+{
+  "cases": [
+    {
+      "mutations": [
+        {
+          "after": "count +;",
+          "before": "count + 8'd1;",
+          "path": "counter.sv"
+        }
+      ],
+      "id": "compile-expression",
+      "failure": {
+        "stage": "compile",
+        "messageContains": "syntax error"
+      },
+      "config": "counter/rtlcheck.json"
+    },
+    {
+      "mutations": [
+        {
+          "after": "count + 8'd2",
+          "before": "count + 8'd1",
+          "path": "counter.sv"
+        }
+      ],
+      "id": "counter-step",
+      "failure": {
+        "stage": "simulate",
+        "messageContains": "expected=1 actual=2"
+      },
+      "config": "counter/rtlcheck.json"
+    },
+    {
+      "mutations": [
+        {
+          "after": "count - step",
+          "before": "count + step",
+          "path": "counter.sv"
+        },
+        {
+          "after": "assign value = ;",
+          "before": "assign value = 8'd1;",
+          "path": "step_value.sv"
+        }
+      ],
+      "id": "two-file-counter",
+      "failure": {
+        "stage": "compile",
+        "messageContains": "syntax error"
+      },
+      "config": "multi/rtlcheck.json"
+    },
+    {
+      "mutations": [
+        {
+          "after": "posedge clk or negedge rst_n)",
+          "before": "posedge clk)",
+          "path": "counter.sv"
+        }
+      ],
+      "id": "validation-reset",
+      "failure": {
+        "stage": "validation",
+        "messageContains": "independent reset check"
+      },
+      "config": "counter/rtlcheck.json"
+    }
+  ]
+}

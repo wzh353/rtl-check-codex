@@ -1,0 +1,31 @@
+{
+  "top": "counter_tb",
+  "sources": [
+    "counter.sv",
+    "step_value.sv"
+  ],
+  "testbenches": [
+    "counter_tb.sv"
+  ],
+  "specification": "spec.txt",
+  "validation": {
+    "top": "counter_validation_tb",
+    "testbenches": [
+      "counter_validation_tb.sv"
+    ],
+    "passMarker": "VALIDATION_PASS"
+  },
+  "repairFiles": [
+    "counter.sv",
+    "step_value.sv"
+  ],
+  "regressions": [
+    {
+      "id": "step-value",
+      "testbenches": [
+        "step_value_tb.sv"
+      ],
+      "top": "step_value_tb"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "top": "counter_tb",
+  "sources": [
+    "counter.sv"
+  ],
+  "testbenches": [
+    "counter_tb.sv"
+  ],
+  "specification": "spec.txt",
+  "validation": {
+    "top": "counter_validation_tb",
+    "testbenches": [
+      "counter_validation_tb.sv"
+    ],
+    "passMarker": "VALIDATION_PASS"
+  },
+  "synthesis": {
+    "failOnWarnings": [
+      13410
+    ],
+    "family": "Cyclone IV E",
+    "top": "counter",
+    "device": "EP4CE6E22C8"
+  },
+  "repairFiles": [
+    "counter.sv"
+  ]
+}

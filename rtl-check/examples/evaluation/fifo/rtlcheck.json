@@ -1,0 +1,36 @@
+{
+  "specification": "spec.txt",
+  "validation": {
+    "simulator": {
+      "engine": "icarus"
+    },
+    "passMarker": "FIFO_REFERENCE_PASS",
+    "top": "fifo_reference_tb",
+    "testbenches": [
+      "fifo_reference_tb.sv"
+    ]
+  },
+  "top": "fifo_sva_tb",
+  "sources": [
+    "stream_fifo.sv"
+  ],
+  "testbenches": [
+    "fifo_sva_tb.sv"
+  ],
+  "simulator": {
+    "engine": "modelsim"
+  },
+  "repairFiles": [
+    "stream_fifo.sv"
+  ],
+  "waveform": {
+    "signals": [
+      "fifo_sva_tb.clk",
+      "fifo_sva_tb.in_valid",
+      "fifo_sva_tb.in_ready",
+      "fifo_sva_tb.out_ready",
+      "fifo_sva_tb.dut.used"
+    ],
+    "maxEvents": 8
+  }
+}

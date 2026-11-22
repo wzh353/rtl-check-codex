@@ -1,0 +1,18 @@
+set_global_assignment -name FAMILY "Cyclone IV E"
+set_global_assignment -name DEVICE EP4CE6E22C8
+set_global_assignment -name TOP_LEVEL_ENTITY counter
+set_global_assignment -name SYSTEMVERILOG_FILE counter.sv
+set_global_assignment -name SDC_FILE probe.sdc
+set_location_assignment PIN_23 -to clk
+set_location_assignment PIN_65 -to count[7]
+set_location_assignment PIN_66 -to count[4]
+set_location_assignment PIN_67 -to en
+set_location_assignment PIN_68 -to count[1]
+set_location_assignment PIN_70 -to count[6]
+set_location_assignment PIN_71 -to count[0]
+set_location_assignment PIN_75 -to rst_n
+set_location_assignment PIN_76 -to count[2]
+set_location_assignment PIN_77 -to count[5]
+set_location_assignment PIN_80 -to count[3]
+set_global_assignment -name STRATIX_DEVICE_IO_STANDARD "3.3-V LVTTL"
+set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to count[0]
