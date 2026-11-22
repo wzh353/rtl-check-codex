@@ -122,10 +122,7 @@ try {
             Initialize-RtlModelSimTools $suite.Simulator
         }
     }
-    if ($project.Synthesis -and $project.Synthesis.engine -eq 'pango') {
-        $project.Synthesis.executable = Find-RtlPangoShell $project.Synthesis.executable
-    }
-    elseif ($project.Synthesis) {
+    if ($project.Synthesis -and $project.Synthesis.engine -eq 'quartus') {
         $project.Synthesis.executable = Find-RtlQuartusMap $project.Synthesis.executable
         if ($project.Synthesis.timing -or $project.Synthesis.board) {
             $project.Synthesis.fitter = Find-RtlQuartusStage $project.Synthesis.executable 'quartus_fit'
@@ -133,6 +130,12 @@ try {
         if ($project.Synthesis.timing) {
             $project.Synthesis.timing.analyzer = Find-RtlQuartusStage $project.Synthesis.executable 'quartus_sta'
         }
+    }
+    elseif ($project.Synthesis -and $project.Synthesis.engine -eq 'pango') {
+        $project.Synthesis.executable = Find-RtlPangoShell $project.Synthesis.executable
+    }
+    elseif ($project.Synthesis) {
+        $project.Synthesis.executable = Find-RtlVendorExecutable $project.Synthesis
     }
 
     if ($previewFiles) { Write-RtlProgress 'Rechecking the saved RTL preview...' 'replay' }

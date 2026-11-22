@@ -4,6 +4,7 @@
 . (Join-Path $PSScriptRoot 'ModelSim.ps1')
 . (Join-Path $PSScriptRoot 'Board.ps1')
 . (Join-Path $PSScriptRoot 'Pango.ps1')
+. (Join-Path $PSScriptRoot 'Vendor.ps1')
 . (Join-Path $PSScriptRoot 'Regression.ps1')
 
 function Resolve-RtlProjectItem([string]$Root, $Name, [switch]$Directory) {
@@ -261,7 +262,8 @@ function Stop-RtlChildProcess([Diagnostics.Process]$Process) {
 }
 
 function Invoke-RtlProcess([string]$Executable, [string[]]$Arguments, [string]$WorkingDirectory,
-                           [string]$LogPrefix, [int]$TimeoutSeconds, [string]$InputText = '') {
+                           [string]$LogPrefix, [int]$TimeoutSeconds, [string]$InputText = '',
+                           [System.Collections.IDictionary]$Environment) {
     $cancellationFile = $env:RTL_CHECK_CANCEL_FILE
     Assert-RtlCheckActive $cancellationFile
     $settings = [Diagnostics.ProcessStartInfo]::new($Executable)
@@ -273,6 +275,9 @@ function Invoke-RtlProcess([string]$Executable, [string[]]$Arguments, [string]$W
     $settings.RedirectStandardError = $true
     $settings.StandardInputEncoding = [Text.UTF8Encoding]::new($false)
     foreach ($argument in $Arguments) { $settings.ArgumentList.Add($argument) }
+    if ($Environment) {
+        foreach ($key in $Environment.Keys) { $settings.Environment[$key] = $Environment[$key] }
+    }
 
     $stdout = "$LogPrefix.stdout.log"
     $stderr = "$LogPrefix.stderr.log"

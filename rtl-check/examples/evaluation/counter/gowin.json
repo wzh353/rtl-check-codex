@@ -1,0 +1,24 @@
+{
+  "top": "counter_tb",
+  "sources": ["counter.sv"],
+  "testbenches": ["counter_tb.sv"],
+  "specification": "spec.txt",
+  "repairFiles": ["counter.sv"],
+  "validation": {
+    "top": "counter_validation_tb",
+    "testbenches": ["counter_validation_tb.sv"],
+    "passMarker": "VALIDATION_PASS"
+  },
+  "synthesis": {
+    "engine": "gowin",
+    "top": "counter",
+    "device": "GW1NR-LV9QN88PC6/I5",
+    "deviceVariant": "GW1NR-9C",
+    "constraintFiles": ["gowin.sdc"],
+    "timing": {
+      "clocks": { "sys_clk": 20 },
+      "minSetupSlackNs": 0,
+      "minHoldSlackNs": 0
+    }
+  }
+}

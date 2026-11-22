@@ -415,7 +415,10 @@ function New-RtlRepairPrompt($Project, [string[]]$Targets, [string]$WorkDirector
                 family = $Project.Synthesis.family
                 device = $Project.Synthesis.device
                 package = $Project.Synthesis['package']
-                speedGrade = $Project.Synthesis['speedGrade']
+                speedGrade = $Project.Synthesis['speedGrade'] ?? $Project.Synthesis['speed']
+                deviceVariant = $Project.Synthesis['deviceVariant']
+                performance = $Project.Synthesis['performance']
+                timingModel = $Project.Synthesis['timingModel']
             }
         }
     } | ConvertTo-Json -Depth 6 -Compress

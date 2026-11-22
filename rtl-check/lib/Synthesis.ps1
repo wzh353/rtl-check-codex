@@ -3,14 +3,16 @@ function Read-RtlSynthesisSettings([string]$Root, $Settings) {
     if ($Settings['top'] -isnot [string] -or $Settings['top'] -cnotmatch '\A[A-Za-z_][A-Za-z0-9_$]*\z') {
         throw 'synthesis.top must name the design module.'
     }
-    foreach ($key in @('family', 'device')) {
+    $engine = if ($Settings.Contains('engine')) { $Settings['engine'] } else { 'quartus' }
+    $engines = @('quartus', 'pango') + @($script:RtlVendorTools.Keys)
+    if ($engine -isnot [string] -or $engine -cnotin $engines) {
+        throw "synthesis.engine must be one of: $($engines -join ', ')."
+    }
+    $required = if ($engine -in @('quartus', 'pango')) { @('family', 'device') } else { 'device' }
+    foreach ($key in $required) {
         if ($Settings[$key] -isnot [string] -or [string]::IsNullOrWhiteSpace($Settings[$key])) {
             throw "synthesis.$key must be a nonempty string."
         }
-    }
-    $engine = if ($Settings.Contains('engine')) { $Settings['engine'] } else { 'quartus' }
-    if ($engine -isnot [string] -or $engine -cnotin @('quartus', 'pango')) {
-        throw 'synthesis.engine must be quartus or pango.'
     }
     $executable = if ($Settings.Contains('executable')) {
         if ($Settings['executable'] -isnot [string] -or [string]::IsNullOrWhiteSpace($Settings['executable'])) {
@@ -27,6 +29,7 @@ function Read-RtlSynthesisSettings([string]$Root, $Settings) {
         defines = @(Read-RtlMacroDefinitions $Settings 'synthesis.defines')
     }
     if ($engine -eq 'pango') { return Read-RtlPangoSettings $Root $Settings $common }
+    if ($engine -ne 'quartus') { return Read-RtlVendorSettings $Root $Settings $common }
     if ($Settings.Contains('failOnWarnings') -and $Settings['failOnWarnings'] -isnot [array]) {
         throw 'synthesis.failOnWarnings must be an array of Quartus warning codes.'
     }
@@ -199,6 +202,10 @@ function Add-RtlSynthesisResult($Project, $Report, [string]$ReferenceRoot, [Syst
             Add-RtlPangoSynthesisResult $Project $Report $ReferenceRoot $Overrides $LogDirectory $TimeoutSeconds $build
             return
         }
+        if ($Project.Synthesis.engine -ne 'quartus') {
+            Add-RtlVendorSynthesisResult $Project $Report $ReferenceRoot $Overrides $LogDirectory $TimeoutSeconds $build
+            return
+        }
         Write-RtlProgress 'Running Quartus analysis and synthesis...' 'synthesis'
         $result = Invoke-RtlSynthesis $Project $ReferenceRoot $Overrides $LogDirectory $TimeoutSeconds $build
         Set-RtlHardwareStage $Report 'synthesize' $result
@@ -213,10 +220,14 @@ function Add-RtlSynthesisResult($Project, $Report, [string]$ReferenceRoot, [Syst
                     $details = $Report[$stage]
                     if (-not $details) { continue }
                     Restore-RtlReportedToolPath $details.process $path
-                    foreach ($key in @('qsfPath', 'projectPath', 'scriptPath', 'summaryPath', 'reportPath', 'pinReportPath')) {
+                    foreach ($key in @('qsfPath', 'projectPath', 'scriptPath', 'summaryPath', 'reportPath', 'pinReportPath', 'artifactDirectory')) {
                         if ($details[$key]) {
                             $details[$key] = Join-Path $path.working ([IO.Path]::GetRelativePath($build, $details[$key]))
                         }
+                    }
+                    if ($details['firstError']) {
+                        $relativeLog = Get-RtlDiagnosticInputFile $details.firstError.log $build
+                        if ($relativeLog) { $details.firstError.log = Join-Path $path.working $relativeLog }
                     }
                 }
             }

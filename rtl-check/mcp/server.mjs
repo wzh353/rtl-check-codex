@@ -44,6 +44,13 @@ const checkSummary = z.object({
   status: z.string(),
   stage: z.string(),
   engine: nullableText,
+  hardwareEngine: nullableText,
+  timing: z.object({
+    status: z.string(),
+    reason: nullableText,
+    worstSetupSlackNs: z.number().nullable(),
+    worstHoldSlackNs: z.number().nullable(),
+  }).nullable(),
   failedRegression: nullableText,
   firstError: z.object({
     inputFile: nullableText,
@@ -89,6 +96,13 @@ const progressMessages = new Map([
   ["replay", "Rechecking the saved RTL preview"],
   ["regression", "Running a public regression"],
   ["pango", "Running Pango PDS hardware checks"],
+  ["vivado", "Running AMD Vivado hardware checks"],
+  ["gowin", "Running Gowin EDA hardware checks"],
+  ["gowin-timing", "Checking Gowin post-route timing"],
+  ["radiant", "Running Lattice Radiant hardware checks"],
+  ["diamond", "Running Lattice Diamond hardware checks"],
+  ["libero", "Running Microchip Libero SoC hardware checks"],
+  ["efinity", "Running Efinix Efinity synthesis"],
   ["synthesis", "Running Quartus analysis and synthesis"],
   ["fit", "Running Quartus placement and routing"],
   ["timing", "Running TimeQuest timing analysis"],
@@ -249,10 +263,18 @@ function excerpt(text, limit = 1600) {
 function summarizeCheck(check) {
   if (!check) return null;
   const error = check.firstError;
+  const timing = check.timing;
   return {
     status: check.status,
     stage: check.stage,
     engine: check.engine ?? null,
+    hardwareEngine: check.synthesis?.engine ?? null,
+    timing: timing ? {
+      status: timing.status,
+      reason: timing.reason ?? null,
+      worstSetupSlackNs: timing.worstSetupSlackNs ?? null,
+      worstHoldSlackNs: timing.worstHoldSlackNs ?? null,
+    } : null,
     failedRegression: check.failedRegression ?? null,
     firstError: error ? {
       inputFile: error.inputFile ?? null,

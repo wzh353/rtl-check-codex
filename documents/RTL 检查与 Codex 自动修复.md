@@ -62,7 +62,7 @@ codex @mcpOptions
 
 - 两项工具都接受 `outDir`、`timeoutSeconds` 和 `expectedInputSha256`。把 `check` 返回的 `inputSha256` 作为后续 `repair` 的 `expectedInputSha256`，输入变动时流程会在仿真和模型调用前停止。相对的配置、预览报告和输出路径以服务的工作区为基准，`repairFile` 相对配置目录。
 - `repair` 可以设置 `maxAttempts`、`codexTimeoutSeconds` 和 `model`，这些参数用于生成新候选。支持 MCP 进度通知的客户端可查看准备、仿真回归、综合、独立验收和修复阶段。取消可停止正在运行的工具，并在输出目录保存终止报告。已进入文件替换的写回会完成事务。
-- 结果包含 `status`、`stage`、`initial`、候选摘要、`modelCalls` 及本地 `reportPath`。发现设计故障时返回标准结果 `status: "failed"`，工具执行错误时返回 `isError: true`。配置文件存在时，准备阶段的错误也有本地报告。独立验收只返回状态，完整细节留在本地报告。
+- 结果包含 `status`、`stage`、`initial`、候选摘要、`modelCalls` 及本地 `reportPath`。`initial.engine` 是仿真器，`initial.hardwareEngine` 是已运行的硬件工具。执行时序检查后，`initial.timing` 提供结果、原因以及以 ns 计的最差 setup 和 hold 裕量。发现设计故障时返回标准结果 `status: "failed"`，工具执行错误时返回 `isError: true`。配置文件存在时，准备阶段的错误也有本地报告。独立验收只返回状态，完整细节留在本地报告。
 
 输入快照复制与多文件写回共用一把锁，避免一次检查读到两个版本的 RTL。复制完成后释放锁，各案例随后可并行运行 EDA。
 
@@ -160,6 +160,72 @@ Windows 深层输出目录会使用临时短路径运行 ModelSim，避开旧版
 当 Icarus 或 ModelSim 报告带时间戳的仿真错误时，工具用同一份输入快照和候选修改回放，并生成 VCD。回放的错误内容、模块实例、时间戳和退出码都一致时，报告保留截至该时间戳的信号值及最近变化。ModelSim 的失败时间会换算为 VCD 刻度，逐位记录的总线会按声明顺序重组。同一刻度内的调度顺序以模拟器的原始诊断为准。
 
 主测试的精简波形会提供给下一轮修复，独立验收的波形保留在本地。原始仿真决定功能结果。若回放异常、断言不同或达到 32 MiB 的抓取上限，查看 `waveform.status` 及回放日志。超过 128 位的信号摘要记录低 128 位，完整输出可在 VCD 中查看。
+
+## 选择 FPGA 开发工具
+
+在项目 JSON 中设置 `synthesis.engine`。配置后，仿真和公开回归通过的版本还要接受所选工具的综合检查。可定位到 RTL 的综合错误会用于 Codex 修复。器件配置、许可证或无法确认结果等工具错误会结束当前检查。候选复检和写回沿用同一个工具，约束随源码一同固定在输入快照中。
+
+下表中的器件用于展示配置格式。实际工程使用板卡对应的器件、封装和速度等级。
+
+| FPGA 厂商 | 开发软件 | `synthesis.engine` | 器件配置示例 | 可选约束与实现 |
+| --- | --- | --- | --- | --- |
+| AMD / Xilinx | Vivado | `vivado` | `device: "xc7a35tcpg236-1"` | XDC，支持布局布线及裕量报告。 [Vivado Tcl](https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/synth_design) |
+| 高云 | Gowin EDA | `gowin` | `device: "GW1NR-LV9QN88PC6/I5"`，`deviceVariant: "GW1NR-9C"` | CST、SDC，支持布局布线和布线后时序核验。 |
+| Lattice | Radiant | `radiant` | `device: "LIFCL-40-8BG400C"`，`performance: "8_High-Performance_1.0V"` | PDC、SDC、FDC，支持布局布线。 [Radiant Tcl](https://www.latticesemi.com/api/document/download?id=55284) |
+| Lattice | Diamond | `diamond` | `device: "LCMXO2-1200HC-4TG100C"` | LPF、SDC、FDC，支持布局布线。 [Diamond Tcl](https://www.latticesemi.com/api/document/download?id=54428#page=2656) |
+| Microchip | Libero SoC | `libero` | `family: "PolarFire"`，`device: "MPF100T"`，`package: "FCVG484"`，`speed: "-1"` | SDC，支持布局布线。 [Libero Tcl](https://www.microchip.com/content/dam/mchp/documents/FPGA/swdocs/libero/libero_soc_tcl_cmd_ref_ug_2025_1.pdf) |
+| Efinix | Efinity | `efinity` | `family: "Titanium"`，`device: "Ti60F225"`，`timingModel: "C4"` | 综合映射，工程使用 2026.1 的 XML 格式。 [Efinity 命令行](https://www.efinixinc.com/docs/efinity-command-line-v1.1.pdf) |
+| Altera / Intel FPGA | Quartus | `quartus`（默认） | `family: "Cyclone IV E"`，`device: "EP4CE6E22C8"` | 综合、布局布线、板级引脚、TimeQuest 时序。 |
+| 盘古 | Pango PDS | `pango` | 见下方盘古配置。 | 综合、布局布线、板级引脚和布线后时序。 |
+
+### 配置示例
+
+把下面的 `synthesis` 配置加入项目 JSON，将程序路径和约束文件换成工程实际位置。
+
+```json
+{
+  "synthesis": {
+    "engine": "vivado",
+    "top": "counter",
+    "device": "xc7a35tcpg236-1",
+    "executable": "C:/EDA/Vivado/bin/vivado.bat",
+    "constraintFiles": ["counter.xdc"],
+    "implementation": true
+  }
+}
+```
+
+- `synthesis.top` 是硬件顶层模块。`constraintFiles` 相对配置目录。`implementation: true` 追加布局布线。Vivado 的裕量详见 `timing-summary.rpt`。Gowin、Quartus 和 PDS 可设置布线后时序限值。
+- `executable` 可指定程序的绝对路径。默认在 `PATH` 查找 `vivado`、`gw_sh`、`radiantc`、`diamondc`、`libero` 或 `efx_run`。Windows 的 Radiant 和 Diamond 可分别指定各自安装目录中的 `bin/nt64/pnmainc.exe`。Libero 可指定 `Designer/bin/libero.exe`。Lattice 的 Verilog 和 SystemVerilog 综合使用随软件安装的 Synplify Pro。
+- 公共的 `sources`、`includeDirs` 和 `supportFiles` 用于生成独立硬件工程。仿真模型、测试台和独立验收测试台分别留在对应的仿真阶段。Gowin 和 Efinity 的硬件宏可在 RTL 引用的头文件中声明。其他新增工具可读取 `synthesis.defines`。
+- Efinity 使用 `efx_run --flow map`。Windows 会加载安装目录中与启动程序配套的 `bin/setup.bat`。本地 JSON 的 `initial.synthesis.artifactDirectory` 保存生成的工程、日志相关产物和工具报告。
+
+已将 Gowin 的器件与检查流程配置到 [计数器样例](../rtl-check/examples/evaluation/counter/gowin.json)。将 `gw_sh` 所在目录加入 `PATH`，然后从项目根目录运行以下命令。
+
+```powershell
+pwsh -NoProfile -File ./rtl-check/rtl-check.ps1 check -Config ./rtl-check/examples/evaluation/counter/gowin.json
+```
+
+本机使用 Gowin EDA 1.9.11.03 Education 验证了综合、布局布线和 RTL 错误定位。Vivado、Radiant、Diamond、Libero 和 Efinity 的接入流程用模拟启动器验证，原生工具执行仍需相应安装和许可。
+
+### Gowin 布线后时序核验
+
+在 `synthesis.constraintFiles` 中列出实际使用的 SDC，再用 `synthesis.timing.clocks` 声明要核验的时钟名和周期。计数器样例使用 `sys_clk`，周期为 20 ns。
+
+```json
+{
+  "constraintFiles": ["gowin.sdc"],
+  "timing": {
+    "clocks": { "sys_clk": 20 },
+    "minSetupSlackNs": 0,
+    "minHoldSlackNs": 0
+  }
+}
+```
+
+`timing` 会开启布局布线和原生文本时序报告。检查器核对工具记录的 SDC、实际时钟周期和路径证据。列出的每个时钟都需要在 Gowin 报告的路径表中有 setup 和 hold 证据。裕量低于门槛或存在违反时序的端点会在 `timing` 阶段判失败。时钟配置不符或报告缺失会结束检查，并保留工具诊断。
+
+完整报告的 `initial.timing` 包含原生 `.tr` 路径、实际时钟周期、违反端点数和最差路径。真实裕量不足时，最差路径会进入后续 Codex 修复上下文。[高云时序报告说明](https://www.gowinsemi.com/upload/database_doc/1/document/5bfcfcab42d1c.pdf)
 
 ## 可选 Quartus 综合
 
@@ -363,8 +429,14 @@ pwsh -NoProfile -File ./rtl-check/tests/synthesis.ps1
 pwsh -NoProfile -File ./rtl-check/tests/timing.ps1
 pwsh -NoProfile -File ./rtl-check/tests/board.ps1
 pwsh -NoProfile -File ./rtl-check/tests/pango.ps1
+pwsh -NoProfile -File ./rtl-check/tests/vendors.ps1
+pwsh -NoProfile -File ./rtl-check/tests/gowin-timing.ps1
 ```
 
 ModelSim 回归可用 `-ModelSimBin` 指定程序目录，混合模拟器用例也需要 Icarus。Quartus 回归需要本机支持 Cyclone IV E 的 `quartus_map`。板级和时序回归还需同目录的 `quartus_fit` 和 `quartus_sta`。未找到相应工具时会跳过对应回归，也可用 `-QuartusMap` 指定映射程序。
 
 Pango 回归使用 PATH 中的 `pds_shell`，也可用 `-PdsShell` 指定路径。
+
+厂商适配回归可用 `-GowinShell` 指定 `gw_sh`，追加真实综合、布局布线和错误定位检查。
+
+Gowin 时序回归使用 `PATH` 中的 `gw_sh`，也可用 `-GowinShell` 指定。用例包含 20 ns 通过、0.5 ns 的 setup 失败、保持时间门槛及错误时钟。
