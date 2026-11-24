@@ -26,27 +26,29 @@ pwsh -NoProfile -File $tool repair -Config $config -RepairFile counter.sv -Apply
 
 MCP 服务使用本地 stdio，暴露 `check` 和 `repair` 两项工具。两项都复用下文的项目 JSON、PowerShell 检查和本机 EDA 工具。修复仍使用本机已登录的 Codex CLI。服务需要 Node.js 20 或更新版本。
 
-```powershell
-npm.cmd ci --prefix ./rtl-check/mcp
-npm.cmd test --prefix ./rtl-check/mcp
-```
+在目标工程目录启动 MCP 服务。将工具目录和工程路径填入下方命令。其他支持 stdio 的客户端也可用同一个 Node.js 服务入口。
 
-从仓库根目录运行下面的命令，可在 Codex CLI 会话中注册名为 `rtl` 的服务。其他支持 stdio 的 MCP 客户端也可以运行 `node`，将 `rtl-check/mcp/server.mjs` 的绝对路径作为启动参数。服务默认以仓库根目录为工作区，也可通过 `--workspace <目录>` 选定工程目录。
-
-在 Codex CLI 里，也可以只为一次会话指定该服务。工具调用使用该会话的审批设置。 [Codex MCP 配置说明](https://developers.openai.com/codex/mcp)
+首次连接时安装服务依赖。在目标工程所在目录运行下列命令，`$toolkitRoot` 指向工具目录。随后可为一次 Codex CLI 会话连接服务。 [Codex MCP 配置说明](https://developers.openai.com/codex/mcp)
 
 ```powershell
-$server = (Resolve-Path ./rtl-check/mcp/server.mjs).Path.Replace('\', '/')
+$toolkitRoot = (Resolve-Path ./rtl-check).Path # 工具在工程外时填写绝对路径
+$projectRoot = (Get-Location).Path
+$mcpDir = Join-Path $toolkitRoot 'mcp'
+$npm = if ($IsWindows) { 'npm.cmd' } else { 'npm' }
+& $npm ci --prefix $mcpDir
+if ($LASTEXITCODE -ne 0) { throw 'MCP 依赖安装失败' }
+
+$server = Join-Path $mcpDir 'server.mjs'
 $mcpOptions = @(
     '-c', 'mcp_servers.rtl.command="node"',
-    '-c', ('mcp_servers.rtl.args=' + (ConvertTo-Json -InputObject @($server) -Compress)),
+    '-c', ('mcp_servers.rtl.args=' + (ConvertTo-Json -InputObject @($server, '--workspace', $projectRoot) -Compress)),
     '-c', 'mcp_servers.rtl.tool_timeout_sec=1800',
     '-c', 'mcp_servers.rtl.env_vars=["QUARTUS_ROOTDIR","MGLS_LICENSE_FILE","PANGO_LICENSE_FILE"]'
 )
 codex @mcpOptions
 ```
 
-检查故障样例时调用 `check`。
+检查故障样例时调用 `check`。在其他工程中，把示例的 `configPath` 换成目标配置相对 `$projectRoot` 的路径。
 
 ```json
 {"configPath":"rtl-check/examples/counter/rtlcheck.json"}
@@ -63,6 +65,7 @@ codex @mcpOptions
 - 两项工具都接受 `outDir`、`timeoutSeconds` 和 `expectedInputSha256`。把 `check` 返回的 `inputSha256` 作为后续 `repair` 的 `expectedInputSha256`，输入变动时流程会在仿真和模型调用前停止。相对的配置、预览报告和输出路径以服务的工作区为基准，`repairFile` 相对配置目录。
 - `repair` 可以设置 `maxAttempts`、`codexTimeoutSeconds` 和 `model`，这些参数用于生成新候选。支持 MCP 进度通知的客户端可查看准备、仿真回归、综合、独立验收和修复阶段。取消可停止正在运行的工具，并在输出目录保存终止报告。已进入文件替换的写回会完成事务。
 - 结果包含 `status`、`stage`、`initial`、候选摘要、`modelCalls` 及本地 `reportPath`。`initial.engine` 是仿真器，`initial.hardwareEngine` 是已运行的硬件工具。执行时序检查后，`initial.timing` 提供结果、原因以及以 ns 计的最差 setup 和 hold 裕量。发现设计故障时返回标准结果 `status: "failed"`，工具执行错误时返回 `isError: true`。配置文件存在时，准备阶段的错误也有本地报告。独立验收只返回状态，完整细节留在本地报告。
+- 已配置 GTKWave 波形验收时，`waveformAcceptance` 返回导出状态、输入摘要、采样数量、各产物路径和打开命令。
 
 输入快照复制与多文件写回共用一把锁，避免一次检查读到两个版本的 RTL。复制完成后释放锁，各案例随后可并行运行 EDA。
 
@@ -134,7 +137,7 @@ codex @mcpOptions
 ```json
 "simulator": {
   "engine": "modelsim",
-  "binDirectory": "C:/path/to/ModelSim/win64"
+  "binDirectory": "C:/EDA/ModelSim/win64"
 }
 ```
 
@@ -160,6 +163,45 @@ Windows 深层输出目录会使用临时短路径运行 ModelSim，避开旧版
 当 Icarus 或 ModelSim 报告带时间戳的仿真错误时，工具用同一份输入快照和候选修改回放，并生成 VCD。回放的错误内容、模块实例、时间戳和退出码都一致时，报告保留截至该时间戳的信号值及最近变化。ModelSim 的失败时间会换算为 VCD 刻度，逐位记录的总线会按声明顺序重组。同一刻度内的调度顺序以模拟器的原始诊断为准。
 
 主测试的精简波形会提供给下一轮修复，独立验收的波形保留在本地。原始仿真决定功能结果。若回放异常、断言不同或达到 32 MiB 的抓取上限，查看 `waveform.status` 及回放日志。超过 128 位的信号摘要记录低 128 位，完整输出可在 VCD 中查看。
+
+## 可选的 GTKWave 波形验收
+
+从项目根目录运行计数器样例。它使用现有的公开测试台和独立验收测试台，并加上单独的只读观察模块。
+
+```powershell
+pwsh -NoProfile -File ./rtl-check/rtl-check.ps1 check -Config ./rtl-check/examples/evaluation/counter/waveform-acceptance.json
+```
+
+`waveformAcceptance` 默认选择主测试。设置 `regression` 可改为一个公开回归 ID。所选用例使用 Icarus 和非空的自检测试台。
+
+```json
+{
+  "waveformAcceptance": {
+    "observer": "counter_wave_observer.sv",
+    "observerTop": "counter_wave_observer",
+    "signals": ["counter_tb.clk", "counter_tb.rst_n", "counter_tb.en", "counter_tb.dut.count"],
+    "expectedSource": "reference_model",
+    "locations": {
+      "step": { "file": "counter_tb.sv", "anchor": "if (count !== expected_count)" }
+    }
+  }
+}
+```
+
+检查、修复预览或写回复检通过后，导出使用已验收的 RTL 快照、原测试台和原仿真参数。观察模块只在这次复跑中编译，记录的驱动和采样时刻使用 Icarus 的 `$simtime()`，刻度与 VCD 一致。`locations` 指向公开测试台中唯一匹配的断言行。计数器样例监听断言前更新的 `cycle`，用独立的 8 位参考模型计算预期值。
+
+观察模块可按行输出以下记录。输入与实测字段用逗号分隔的 `信号名=二进制值`，信号名可用唯一的末级名称或完整层级。缺少预期值用 `-` 或省略对应项，`expectedSource` 可填 `reference_model` 或 `testbench`。
+
+```text
+RTL_WAVE_DRIVE|驱动刻度|输入值
+RTL_WAVE_SAMPLE|驱动刻度|实际采样刻度|场景|断言ID|预期值|实测值
+RTL_WAVE_SEED|种子名|实际种子
+RTL_WAVE_SEED|none
+```
+
+使用随机种子时，记录测试台实际采用的值。确定性样例使用 `RTL_WAVE_SEED|none`。原测试台、独立验收和观察模块均作为只读输入。
+
+`summary.json` 的 `waveformAcceptance` 记录最终 RTL 摘要、测试输入及参数摘要、观察模块摘要、VCD 时基、种子和导出状态。`ready` 表示原断言通过且产物证据齐全。按需运行 `openCommand`，GTKWave 会加载 VCD 和预选信号。用 `stimulus.md` 及同次回放的采样日志向 Codex 提供测试场景，表中保留 `X/Z` 和「未指定」。功能结果继续由原断言和独立验收决定。[GTKWave 打开方式](https://gtkwave.github.io/gtkwave/man/gtkwave.1.html)
 
 ## 选择 FPGA 开发工具
 
@@ -415,6 +457,34 @@ pwsh -NoProfile -File ./rtl-check/rtl-evaluate.ps1 -Manifest $cases -Mode repair
 
 每个案例的 `config` 指向清单目录内的正确项目。`mutations` 用 `path`、`before`、`after` 指定设计源码的精确替换。`failure.stage` 指定应拦截故障的阶段，还可用 `regression`、`reason`、`code` 或 `messageContains` 核对具体诊断。修复模式使用正确项目配置的 `repairFiles` 授权范围。结果保存到运行目录的 `summary.json`，其中关联了所有底层报告和快照。
 
+## 测量测试台能检出的故障
+
+`testbench` 模式在隔离副本里分别运行正确设计和改动后的设计，使用项目配置的原测试台、回归和独立验收。清单只需指定 `id`、`config` 和 `mutations`。工具按实际执行结果记录首个拦截环节，模型调用数为零。[计数器测量清单](../rtl-check/examples/evaluation/testbench-audit.json)
+
+```powershell
+pwsh -NoProfile -File ./rtl-check/rtl-evaluate.ps1 -Mode testbench -Manifest ./rtl-check/examples/evaluation/testbench-audit.json -Parallelism 3 -OutDir ./tmp/rtl-testbench
+```
+
+报告中 `detectionCounts` 按案例计数。每项的 `detection` 记录结果、测试套件、阶段和可定位的文件行号，`fault.reportPath` 指向底层仿真报告。
+
+| 结果 | 实际观察 |
+| --- | --- |
+| `public_detected` | 主测试台或具名公开回归在仿真中报错，能定位到声明的测试台文件、行号和仿真时刻 |
+| `validation_only` | 公开检查通过，独立验收测试台在仿真中报错 |
+| `survived` | 改动通过了配置的全部检查，且至少一套自检仿真实际运行。需用区分性输入或等价性验证进一步判读 |
+| `compile_rejected` / `hardware_rejected` | 编译或展开诊断、综合、布局布线或时序检查拦下了改动 |
+| `inconclusive` | 对照失败、输入快照不符、超时、只有编译证据，或仿真失败无法定位到声明的测试台。`reason` 记录原因 |
+
+退出码 `0` 和状态 `completed` 表示本次测量完成，其中可以包含 `survived`。存在无法判定的案例时退出码为 `1`，配置或工具出错时为 `2`。
+
+计数器清单用两组测试检查同一处改动。它让 `count` 到达 `127` 后，即使 `en=0` 也会在下一拍继续加一。原有测试通过。增加一个公开回归，在 `127` 时撤销使能，正确设计会保持 `127`，改动版会输出 `128`。这个输入能证实原测试在该场景漏检。[额外的公开回归](../rtl-check/examples/evaluation/counter/counter_hold_tb.sv)
+
+### 这些做法的来源
+
+- **MCY** 在位计数器示例中结合测试台和等价性检查判别变异。这里采用其用改动挑战测试台的思路，按本地清单列出实际检测结果。项目未运行等价性证明时，报告保留 `survived`，不据此计算功能覆盖率。[MCY 位计数器配置](https://github.com/YosysHQ/mcy/blob/5a2cad0cbefceb7f23051c08348bd23128fd1046/examples/bitcnt/config.mcy)
+- **VerilogEval** 对典型 Icarus 错误分类，**RTLFixer** 将编译日志和对应排查建议交给模型，再运行工具检查候选。这里用本地规则匹配首条编译诊断中的语法、模块、命名端口、名称绑定和头文件错误，在报告和修复上下文中保留原文并附上排查方向。JSON 和 MCP 的字段为 `firstError.compilerHint`。[VerilogEval 错误分类](https://github.com/NVlabs/verilog-eval/blob/c498220d0a52248f8e3fdffe279075215bde2da6/count_failures.py) · [RTLFixer 修复流程](https://github.com/NVlabs/RTLFixer/blob/24ceebd9176d59bf302e935a800fcb46a10c634c/src/task/oneshot_fix_compile.py)
+- **VerilogCoder** 围绕不匹配输出选择信号和一段波形时间窗。Skill 借鉴这个排查顺序，从首次失败的断言回看上一拍的数据、使能和复位。当前工具使用配置里选定的信号及其 VCD 时间刻度。[VerilogCoder 波形分析](https://github.com/NVlabs/VerilogCoder/blob/8b13108869f276c7b644dd88beabcb401a5cfa92/hardware_agent/examples/VerilogCoder/vcd_waveform_analyzer.py)
+
 ## 运行本地回归
 
 ```powershell
@@ -424,6 +494,7 @@ pwsh -NoProfile -File ./rtl-check/tests/regressions.ps1
 pwsh -NoProfile -File ./rtl-check/tests/batch.ps1
 pwsh -NoProfile -File ./rtl-check/tests/evaluation.ps1
 pwsh -NoProfile -File ./rtl-check/tests/waveform.ps1
+pwsh -NoProfile -File ./rtl-check/tests/waveform-acceptance.ps1
 pwsh -NoProfile -File ./rtl-check/tests/modelsim.ps1
 pwsh -NoProfile -File ./rtl-check/tests/synthesis.ps1
 pwsh -NoProfile -File ./rtl-check/tests/timing.ps1

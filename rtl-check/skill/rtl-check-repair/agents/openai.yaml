@@ -1,0 +1,3 @@
+interface:
+  display_name: "RTL 检查与 Codex 修复"
+  short_description: "检查和修复 RTL，测量测试台检出能力，并导出可核对的 GTKWave 波形"

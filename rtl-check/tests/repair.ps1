@@ -379,6 +379,9 @@ try {
         throw "Expected a real compiler failure below the prompt's long-file cut-off."
     }
     $longPrompt = New-RtlRepairPrompt $project 'counter.sv' $longWork $longCheck.diagnostic $longCheck.firstError
+    if (-not $longCheck.firstError.compilerHint -or -not $longPrompt.Contains($longCheck.firstError.compilerHint.inspection)) {
+        throw 'The repair prompt must carry the inspection corresponding to the actual Icarus error.'
+    }
     if ($longPrompt -cnotmatch [regex]::Escape($detail) -or $longPrompt -notmatch '"startLine"') {
         throw 'The prompt must include the code around the reported source line.'
     }

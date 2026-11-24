@@ -1,0 +1,21 @@
+{
+  "top": "counter_tb",
+  "sources": ["counter.sv"],
+  "testbenches": ["counter_tb.sv"],
+  "specification": "spec.txt",
+  "repairFiles": ["counter.sv"],
+  "validation": {
+    "top": "counter_validation_tb",
+    "testbenches": ["counter_validation_tb.sv"],
+    "passMarker": "VALIDATION_PASS"
+  },
+  "waveformAcceptance": {
+    "observer": "counter_wave_observer.sv",
+    "observerTop": "counter_wave_observer",
+    "signals": ["counter_tb.clk", "counter_tb.rst_n", "counter_tb.en", "counter_tb.dut.count"],
+    "expectedSource": "reference_model",
+    "locations": {
+      "step": { "file": "counter_tb.sv", "anchor": "if (count !== expected_count)" }
+    }
+  }
+}

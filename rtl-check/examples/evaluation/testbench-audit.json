@@ -1,0 +1,29 @@
+{
+  "cases": [
+    {
+      "id": "wrong-step",
+      "config": "counter/rtlcheck.json",
+      "mutations": [{ "path": "counter.sv", "before": "count + 8'd1", "after": "count + 8'd2" }]
+    },
+    {
+      "id": "asynchronous-reset",
+      "config": "counter/rtlcheck.json",
+      "mutations": [{ "path": "counter.sv", "before": "posedge clk)", "after": "posedge clk or negedge rst_n)" }]
+    },
+    {
+      "id": "hold-original-tests",
+      "config": "counter/rtlcheck.json",
+      "mutations": [{ "path": "counter.sv", "before": "else if (en)", "after": "else if (en || count == 8'd127)" }]
+    },
+    {
+      "id": "hold-with-regression",
+      "config": "counter/hold-regression.json",
+      "mutations": [{ "path": "counter.sv", "before": "else if (en)", "after": "else if (en || count == 8'd127)" }]
+    },
+    {
+      "id": "malformed-expression",
+      "config": "counter/rtlcheck.json",
+      "mutations": [{ "path": "counter.sv", "before": "count + 8'd1", "after": "count +" }]
+    }
+  ]
+}

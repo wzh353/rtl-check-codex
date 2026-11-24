@@ -49,6 +49,7 @@ $summary = [ordered]@{
     stopReason = $null
     initial = $null
     validation = $null
+    waveformAcceptance = $null
     attempts = [Collections.Generic.List[object]]::new()
     applied = $false
     repairFiles = @()
@@ -74,6 +75,7 @@ try {
     Write-RtlProgress 'Preparing the RTL project...' 'prepare'
     Assert-RtlCheckActive
     $project = Read-RtlProject $summary.configPath
+    if ($project.WaveformAcceptance) { $summary.waveformAcceptance = New-RtlWaveformAcceptanceReport $project.WaveformAcceptance }
     if ($Mode -eq 'apply') {
         if ([string]::IsNullOrWhiteSpace($PreviewReport)) { throw 'Apply mode requires -PreviewReport.' }
         $summary.previewReport = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PreviewReport)
@@ -160,6 +162,9 @@ try {
                 $summary.status = 'repaired'
             }
             $exitCode = 0
+            if ($project.WaveformAcceptance) {
+                Export-RtlWaveformAcceptance $project $summary $baseline $previewFiles $compiler $simulator $TimeoutSeconds
+            }
         } else {
             $summary.status = 'failed'
             $exitCode = 1
@@ -214,6 +219,10 @@ if ($Json) {
     foreach ($candidate in $summary.candidateFiles) {
         Write-Host "Verified candidate: $($candidate.candidatePath)"
         if ($summary.applied) { Write-Host "Applied to: $(Join-Path $project.Root $candidate.path)" }
+    }
+    if ($summary.waveformAcceptance) {
+        Write-Host "Waveform acceptance: $($summary.waveformAcceptance.status)"
+        if ($summary.waveformAcceptance.openCommand) { Write-Host $summary.waveformAcceptance.openCommand }
     }
     if ($summary.error) { [Console]::Error.WriteLine($summary.error) }
     if ($summary.runDirectory) { Write-Host "Logs: $($summary.runDirectory)" }

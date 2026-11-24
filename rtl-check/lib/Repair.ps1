@@ -606,6 +606,9 @@ function Invoke-RtlRepair($Project, $Summary, [string]$Baseline, [string[]]$Targ
                 $Summary.applied = $true
             }
             $Summary.status = 'repaired'
+            if ($Project['WaveformAcceptance']) {
+                Export-RtlWaveformAcceptance $Project $Summary $Baseline $changedFiles $Compiler $Simulator $CheckTimeout
+            }
             return
         }
         if (Test-RtlEarlierFailure $baseCheck $attempt.check) {

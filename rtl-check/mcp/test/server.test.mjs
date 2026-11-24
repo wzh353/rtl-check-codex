@@ -102,6 +102,18 @@ test("local RTL MCP over stdio", async (t) => {
     assert.equal(await readFile(join(workspace, broken, "counter.sv"), "utf8"), original);
   });
 
+  await t.test("returns the Icarus compiler hint with its original source location", async () => {
+    const folder = "missing module";
+    await cp(fixture, join(workspace, folder), { recursive: true });
+    await writeFile(join(workspace, folder, "counter.sv"), correct.replace("endmodule", "absent_cell child();\nendmodule"));
+    const data = (await call("check", { configPath: configuration(folder) })).structuredContent;
+    assert.equal(data.initial.stage, "compile");
+    assert.equal(data.initial.firstError.inputFile, "counter.sv");
+    assert.match(data.initial.firstError.message, /Unknown module type: absent_cell/i);
+    assert.equal(data.initial.firstError.compilerHint.category, "unknown_module");
+    assert.ok(data.initial.diagnostic.includes(data.initial.firstError.compilerHint.inspection));
+  });
+
   await t.test("routes repair through the original baseline workflow", async () => {
     const result = await call("repair", { configPath: configuration(healthy), repairFile: "counter.sv" });
     assert.equal(Boolean(result.isError), false);

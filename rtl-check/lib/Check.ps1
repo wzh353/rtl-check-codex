@@ -1,4 +1,5 @@
 . (Join-Path $PSScriptRoot 'Waveform.ps1')
+. (Join-Path $PSScriptRoot 'WaveformAcceptance.ps1')
 . (Join-Path $PSScriptRoot 'Synthesis.ps1')
 . (Join-Path $PSScriptRoot 'Timing.ps1')
 . (Join-Path $PSScriptRoot 'ModelSim.ps1')
@@ -116,13 +117,17 @@ function Read-RtlProject([string]$ConfigPath) {
         }
         $project.Validation = $suite
     }
+    $project.WaveformAcceptance = if ($config.Contains('waveformAcceptance')) {
+        Read-RtlWaveformAcceptanceSettings $project $config['waveformAcceptance']
+    }
     return $project
 }
 
 function Get-RtlBaselineFiles($Project) {
     $public = @(Get-RtlPublicFiles $Project)
-    if ($Project['Validation']) { return @($public + $Project.Validation.InputFiles | Sort-Object -Unique) }
-    return $public
+    if ($Project['Validation']) { $public += $Project.Validation.InputFiles }
+    if ($Project['WaveformAcceptance']) { $public += $Project.WaveformAcceptance.observer }
+    return @($public | Sort-Object -Unique)
 }
 
 function Get-RtlInputDigest([string]$Root, [string[]]$InputFiles) {
@@ -357,6 +362,26 @@ function Get-RtlDiagnosticInputFile([string]$File, [string]$WorkDirectory) {
     catch [NotSupportedException] {}
 }
 
+function Get-RtlIcarusCompileHint([string]$Message) {
+    switch -Regex ($Message -replace '^error:\s*', '') {
+        '^syntax error\b' {
+            return @{ category = 'syntax'; inspection = 'Inspect the reported token and the preceding statement for an incomplete expression, delimiter, or block.' }
+        }
+        '^Include file .+ not found\b' {
+            return @{ category = 'missing_include'; inspection = 'Check the include spelling, staged supportFiles, and includeDirs against the actual header location.' }
+        }
+        '^Unknown module type:' {
+            return @{ category = 'unknown_module'; inspection = 'Match the instantiated module name to its declaration and check that its source or simulation model is in the compilation inputs.' }
+        }
+        '^Unable to bind (?:wire/reg/memory|parameter)\b' {
+            return @{ category = 'unresolved_name'; inspection = 'Check the identifier spelling, declaration scope, and any conditional declaration in the named instance.' }
+        }
+        '^port\b.+\bis not a port of\b' {
+            return @{ category = 'port_mismatch'; inspection = 'Compare the named connection on the instance with the port declaration in the module it instantiates.' }
+        }
+    }
+}
+
 function Get-RtlFirstError($Process, [string]$Stage, [string]$WorkDirectory) {
     $location = '(?:(?<file>.+?):(?<line>\d+):\s*)?'
     if ($Stage -eq 'compile') {
@@ -380,7 +405,7 @@ function Get-RtlFirstError($Process, [string]$Stage, [string]$WorkDirectory) {
             $scope = $timeLine.Groups[2].Value
         }
     }
-    return [ordered]@{
+    $first = [ordered]@{
         file = $file
         inputFile = Get-RtlDiagnosticInputFile $file $WorkDirectory
         line = if ($groups['line'].Success) { [int]$groups['line'].Value }
@@ -391,11 +416,21 @@ function Get-RtlFirstError($Process, [string]$Stage, [string]$WorkDirectory) {
         textHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($entry.Line)))
         log = $entry.Path
     }
+    if ($Stage -eq 'compile' -and -not $Process.timedOut) {
+        $hint = Get-RtlIcarusCompileHint $first.message
+        if ($hint) { $first.compilerHint = $hint }
+    }
+    return $first
 }
 
 function Get-RtlDiagnostics($Process, [string]$Message, $FirstError) {
     $parts = @($Message)
-    if ($FirstError) { $parts += $FirstError.text }
+    if ($FirstError) {
+        $parts += $FirstError.text
+        if ($FirstError['compilerHint']) {
+            $parts += "RTL check hint [$($FirstError.compilerHint.category)] $($FirstError.compilerHint.inspection)"
+        }
+    }
     foreach ($path in @($Process.stdout, $Process.stderr)) {
         $tail = (Get-Content -LiteralPath $path -Tail 16 -Encoding utf8 |
             Where-Object { -not $FirstError -or $_ -cne $FirstError.text }) -join "`n"
@@ -405,8 +440,9 @@ function Get-RtlDiagnostics($Process, [string]$Message, $FirstError) {
     return ($parts -join "`n")
 }
 
-function Get-RtlCompileArguments($Project, [string]$Program) {
+function Get-RtlCompileArguments($Project, [string]$Program, [string[]]$AdditionalTops = @()) {
     $compileArgs = @('-g2012', '-grelative-include', '-Wall', '-s', $Project.Top, '-o', $Program)
+    foreach ($top in $AdditionalTops) { $compileArgs += @('-s', $top) }
     foreach ($dir in $Project.IncludeDirs) { $compileArgs += @('-I', "./$dir") }
     foreach ($define in $Project.Defines) { $compileArgs += "-D$define" }
     $compileArgs += @(Get-RtlSimulationSourceArguments $Project)
@@ -441,10 +477,11 @@ function New-RtlCheckReport([string]$Engine) {
 }
 
 function Invoke-RtlIcarusCheck($Project, [string]$WorkDirectory, [string]$LogDirectory,
-                              [string]$Compiler, [string]$Simulator, [int]$TimeoutSeconds) {
+                              [string]$Compiler, [string]$Simulator, [int]$TimeoutSeconds,
+                              [string[]]$AdditionalTops = @(), [string[]]$AdditionalSources = @()) {
     # Keep the output binary outside the sources and runtime data.
     $program = Join-Path $LogDirectory 'simulation.vvp'
-    $compileArgs = @(Get-RtlCompileArguments $Project $program)
+    $compileArgs = @(Get-RtlCompileArguments $Project $program $AdditionalTops) + $AdditionalSources
     $result = Invoke-RtlProcess $Compiler $compileArgs $WorkDirectory (Join-Path $LogDirectory 'compile') $TimeoutSeconds
     $report = New-RtlCheckReport 'icarus'
     $report.compile = $result
@@ -491,6 +528,9 @@ function Invoke-RtlSimulationCheck($Project, [string]$WorkDirectory, [string]$Lo
         Invoke-RtlModelSimCheck $Project $WorkDirectory $LogDirectory $TimeoutSeconds
     } else {
         Invoke-RtlIcarusCheck $Project $WorkDirectory $LogDirectory $Compiler $Simulator $TimeoutSeconds
+    }
+    if ($report.stage -eq 'simulate' -and $report.firstError) {
+        $report.firstError.fromTestbench = $report.firstError.inputFile -cin $Project.Testbenches
     }
     if ($report.status -eq 'failed' -and $report.stage -eq 'simulate' -and $Project['Waveform']) {
         $report.waveform = Invoke-RtlFailureWaveform $Project $report $ReferenceRoot $Overrides $LogDirectory $Compiler $Simulator $TimeoutSeconds

@@ -57,6 +57,7 @@ const checkSummary = z.object({
     line: z.number().int().nullable(),
     code: z.union([z.string(), z.number()]).nullable(),
     message: nullableText,
+    compilerHint: z.object({ category: z.string(), inspection: z.string() }).nullable(),
   }).nullable(),
   diagnostic: nullableText,
   waveformPath: nullableText,
@@ -71,6 +72,22 @@ const resultSchema = z.object({
   stage: nullableText,
   initial: checkSummary.nullable(),
   validationStatus: nullableText,
+  waveformAcceptance: z.object({
+    status: z.string(),
+    case: z.string(),
+    diagnostic: nullableText,
+    sampleCount: z.number().int().nonnegative(),
+    rtlSha256: sha256.nullable(),
+    testInputSha256: sha256.nullable(),
+    timescale: nullableText,
+    timeUnit: nullableText,
+    randomSeeds: z.object({ status: z.string(), values: z.record(z.string(), z.string()) }).nullable(),
+    vcdPath: nullableText,
+    gtkwPath: nullableText,
+    stimulusPath: nullableText,
+    samplingLogPath: nullableText,
+    openCommand: nullableText,
+  }).nullable(),
   stopReason: nullableText,
   attempts: z.array(z.object({
     number: z.number().int(),
@@ -107,6 +124,7 @@ const progressMessages = new Map([
   ["fit", "Running Quartus placement and routing"],
   ["timing", "Running TimeQuest timing analysis"],
   ["validation", "Running independent validation"],
+  ["waveform-acceptance", "Exporting the verified waveform"],
   ["model", "Asking Codex for a repair"],
   ["candidate", "Checking a repair candidate"],
   ["publish", "Publishing verified RTL files"],
@@ -281,6 +299,7 @@ function summarizeCheck(check) {
       line: error.line ?? null,
       code: error.code ?? null,
       message: excerpt(error.message),
+      compilerHint: error.compilerHint ?? null,
     } : null,
     diagnostic: excerpt(check.diagnostic),
     waveformPath: check.waveform?.path ?? null,
@@ -314,6 +333,7 @@ async function resultFor(mode, started, { report, exitCode, error, configPath } 
   }));
   const validationStatus = report?.validation?.status ?? null;
   const initial = summarizeCheck(report?.initial);
+  const wave = report?.waveformAcceptance;
   const stage = validationStatus && validationStatus !== "passed"
     ? "validation"
     : attempts.findLast((attempt) => attempt.check)?.check.stage ?? initial?.stage ?? null;
@@ -329,6 +349,22 @@ async function resultFor(mode, started, { report, exitCode, error, configPath } 
     stage,
     initial,
     validationStatus,
+    waveformAcceptance: wave ? {
+      status: wave.status,
+      case: wave.case,
+      diagnostic: excerpt(wave.diagnostic),
+      sampleCount: wave.sampleCount,
+      rtlSha256: wave.rtlSha256 ?? null,
+      testInputSha256: wave.testInputSha256 ?? null,
+      timescale: wave.timescale ?? null,
+      timeUnit: wave.timeUnit ?? null,
+      randomSeeds: wave.randomSeeds ?? null,
+      vcdPath: wave.vcdPath ?? null,
+      gtkwPath: wave.gtkwPath ?? null,
+      stimulusPath: wave.stimulusPath ?? null,
+      samplingLogPath: wave.samplingLogPath ?? null,
+      openCommand: wave.openCommand ?? null,
+    } : null,
     stopReason: report?.stopReason ?? null,
     attempts,
     modelCalls: attempts.filter((attempt) => attempt.codexInvoked).length,

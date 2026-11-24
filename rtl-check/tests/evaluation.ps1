@@ -42,6 +42,63 @@ function Invoke-EvaluationTest([object[]]$Cases, [string]$Mode, [int]$Exit, [int
 }
 
 try {
+    $hold = @{ id = 'missed-hold'; config = 'counter/rtlcheck.json'; mutations = @(@{
+        path = 'counter.sv'; before = 'else if (en)'; after = "else if (en || count == 8'd127)"
+    }) }
+    $syntax = @{ id = 'syntax'; config = $hold.config; mutations = @(@{ path = 'counter.sv'; before = "count + 8'd1"; after = 'count +' }) }
+    $audit = Invoke-EvaluationTest @($arithmetic, $guard, $hold, $syntax) 'testbench' 0 -Parallelism 3
+    if ($audit.status -ne 'completed' -or $audit.metrics.modelCalls -ne 0 -or $audit.metrics.controlsPassed -ne 4 -or
+        ($audit.cases.detection.outcome -join ',') -cne 'public_detected,validation_only,survived,compile_rejected' -or
+        $audit.detectionCounts.survived -ne 1 -or $audit.detectionCounts.public_detected -ne 1 -or
+        $audit.cases[0].detection.file -ne 'counter_tb.sv' -or $audit.cases[0].detection.line -lt 1 -or
+        $audit.cases[1].detection.file -ne 'counter_validation_tb.sv') {
+        throw 'Testbench measurements must separate public and holdout detections, surviving edits and compile rejections.'
+    }
+    $missingExpectation = Invoke-EvaluationTest @($hold) 'check' 2
+    if ($missingExpectation.error -notmatch 'expected failure stage') { throw 'Calibration still requires its expected failure.' }
+    Write-Host 'PASS Measures which test caught each mutation using both measured snapshots'
+
+    $noMarker = @{ id = 'early-finish'; config = $hold.config; mutations = @(@{ path = 'counter.sv'; before = 'endmodule'; after = 'initial #1 $finish; endmodule' }) }
+    $rtlFatal = @{ id = 'dut-fatal'; config = $hold.config; mutations = @(@{ path = 'counter.sv'; before = 'endmodule'; after = 'initial #1 $fatal(1, "DUT error"); endmodule' }) }
+    $compileOnly = @{ id = 'compile-only'; config = 'counter/compile-only.json'; mutations = $hold.mutations }
+    [IO.File]::WriteAllText((Join-Path $root $compileOnly.config), '{"top":"counter","sources":["counter.sv"]}')
+    $unmeasured = Invoke-EvaluationTest @($noMarker, $rtlFatal, $compileOnly) 'testbench' 1 -Parallelism 3
+    if ($unmeasured.status -ne 'inconclusive' -or $unmeasured.detectionCounts.inconclusive -ne 3 -or
+        $unmeasured.detectionCounts.public_detected -ne 0 -or $unmeasured.detectionCounts.survived -ne 0) {
+        throw 'Early exit, a DUT-originated fatal and compile-only checks cannot qualify as measured testbench outcomes.'
+    }
+    Write-Host 'PASS Excludes missing test evidence and DUT-originated errors from testbench detections'
+
+    $withRegression = @{
+        top = 'counter'; sources = @('counter.sv'); regressions = @(@{
+            id = 'exercise'; top = 'counter_tb'; testbenches = @('counter_tb.sv'); defines = @('REGRESSION_ONLY')
+        })
+    }
+    $path = 'counter/regression-only.json'
+    [IO.File]::WriteAllText((Join-Path $root $path), (ConvertTo-Json $withRegression -Depth 7))
+    $lateCompile = @{ id = 'regression-compile'; config = $path; mutations = @(@{
+        path = 'counter.sv'; before = 'endmodule'; after = "``ifdef REGRESSION_ONLY`nmissing_cell child();`n``endif`nendmodule"
+    }) }
+    $lateFailure = @{ id = 'regression-detected'; config = $path; mutations = $arithmetic.mutations }
+    $latePass = @{ id = 'regression-survived'; config = $path; mutations = $hold.mutations }
+    $late = Invoke-EvaluationTest @($lateCompile, $lateFailure, $latePass) 'testbench' 0 -Parallelism 3
+    if (($late.cases.detection.outcome -join ',') -cne 'compile_rejected,public_detected,survived' -or
+        $late.cases[0].detection.stage -ne 'compile' -or $late.cases[1].detection.stage -ne 'simulate' -or
+        $late.cases[1].detection.regression -ne 'exercise') {
+        throw 'A compile-only primary must preserve the actual regression name, nested stage, and simulation evidence.'
+    }
+    Write-Host 'PASS Attributes nested compile and simulation results to the actual public regression'
+
+    [IO.File]::WriteAllText((Join-Path $root 'counter/broken-control.sv'), $healthy.Replace("count + 8'd1", "count + 8'd2"))
+    $brokenControl = @{ id = 'bad-control'; config = 'counter/bad-control.json'; mutations = @(@{
+        path = 'broken-control.sv'; before = "count + 8'd2"; after = "count + 8'd1"
+    }) }
+    [IO.File]::WriteAllText((Join-Path $root $brokenControl.config), '{"top":"counter_tb","sources":["broken-control.sv"],"testbenches":["counter_tb.sv"]}')
+    $badControlResult = Invoke-EvaluationTest @($brokenControl) 'testbench' 1
+    if ($badControlResult.metrics.controlsPassed -ne 0 -or $badControlResult.cases[0].detection.reason -ne 'control_failed' -or
+        $badControlResult.detectionCounts.inconclusive -ne 1) { throw 'A failing healthy control invalidates the measurement.' }
+    Write-Host 'PASS Excludes a mutation whose control fails its original tests'
+
     $calibration = Invoke-EvaluationTest @($arithmetic, $guard) 'check' 0 -Parallelism 3
     $batchCalibration = [IO.File]::ReadAllText($calibration.calibrationReport) | ConvertFrom-Json -AsHashtable
     if ($calibration.metrics.controlsPassed -ne 2 -or $calibration.metrics.faultsAtExpectedStage -ne 2 -or
@@ -111,6 +168,11 @@ try {
         throw 'A simulation timeout must be visible without counting as a calibrated design failure.'
     }
     Write-Host 'PASS Distinguishes an EDA timeout from a deliberately injected defect'
+    $timedAudit = Invoke-EvaluationTest @($hang) 'testbench' 1 3 -Parallelism 2
+    if ($timedAudit.cases[0].detection.reason -ne 'timeout' -or $timedAudit.detectionCounts.inconclusive -ne 1) {
+        throw 'A timed-out simulator must not receive credit for detecting a mutation.'
+    }
+    Write-Host 'PASS Excludes timed-out mutation simulations even with the correct expected stage'
 
     $scopeConfig = Join-Path $root 'counter/scope.json'
     [IO.File]::WriteAllText((Join-Path $root 'counter/other.v'), 'module other; endmodule')
@@ -148,4 +210,4 @@ finally {
         Remove-Item -LiteralPath $resolved -Recurse -Force
     }
 }
-Write-Host '8 evaluation tests passed.'
+Write-Host '13 evaluation tests passed.'

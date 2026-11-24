@@ -39,6 +39,7 @@ try {
         param($result)
         Assert-Equal $result.initial.stage 'simulate' 'Stage'
         Assert-Equal ($result.initial.diagnostic -match 'cycle=3.*expected=1 actual=2') $true 'Counterexample'
+        Assert-Equal $result.initial.firstError.compilerHint $null 'Simulation retains its own diagnosis'
         Assert-Equal $result.validation $null 'Independent validation skipped'
         Assert-Equal ([IO.File]::ReadAllText($source)) $originalSource 'Source preserved'
     }
@@ -73,6 +74,7 @@ try {
         Assert-Equal ($result.initial.diagnostic -match 'syntax error') $true 'Compiler diagnostic'
         Assert-Equal ($result.initial.firstError.file -match 'counter\.sv$') $true 'Compiler source file'
         Assert-Equal $result.initial.firstError.line 1 'Compiler source line'
+        Assert-Equal $result.initial.firstError.compilerHint.category 'syntax' 'Syntax category'
     }
 
     [IO.File]::WriteAllText($source, @'
@@ -83,6 +85,31 @@ module counter; endmodule
         param($result)
         Assert-Equal ($result.initial.firstError.file -match 'counter\.sv$') $true 'Including source file'
         Assert-Equal ($result.initial.firstError.message -match 'Include file missing-defines\.vh not found') $true 'Root compiler error'
+        Assert-Equal $result.initial.firstError.compilerHint.category 'missing_include' 'Header diagnostic category'
+        Assert-Equal ($result.initial.diagnostic.Contains('RTL check hint [missing_include]')) $true 'Advice labeled separately from simulator output'
+        Assert-Equal ($result.initial.diagnostic.Contains($result.initial.firstError.compilerHint.inspection)) $true 'Hint delivered alongside the original diagnostic'
+    }
+
+    $compileExamples = @(
+        @{ category = 'unknown_module'; statement = 'missing_cell u_missing();' },
+        @{ category = 'unresolved_name'; statement = 'wire bad = missing_wire;' },
+        @{ category = 'port_mismatch'; statement = 'probe u_probe(.absent(en));'; helper = 'module probe(input real_port); endmodule' }
+    )
+    foreach ($item in $compileExamples) {
+        $text = $fixedSource.Replace('endmodule', ($item.statement + "`nendmodule")) + "`n" + $item['helper']
+        [IO.File]::WriteAllText($source, $text)
+        Invoke-Case "Identifies the Icarus $($item.category) diagnostic" 1 {
+            param($result)
+            Assert-Equal $result.initial.firstError.compilerHint.category $item.category 'Compiler hint category'
+            Assert-Equal ($result.initial.diagnostic.Contains($result.initial.firstError.message)) $true 'Original compiler text'
+        }
+    }
+
+    [IO.File]::WriteAllText($source, $fixedSource.Replace('endmodule', "wire duplicate_name; wire duplicate_name;`nendmodule"))
+    Invoke-Case 'Preserves an unclassified compiler diagnostic' 1 {
+        param($result)
+        Assert-Equal ($result.initial.firstError.message -match 'duplicate_name') $true 'Unclassified compiler message'
+        Assert-Equal $result.initial.firstError.compilerHint $null 'No guessed guidance'
     }
 
     [IO.File]::WriteAllText($source, $fixedSource)

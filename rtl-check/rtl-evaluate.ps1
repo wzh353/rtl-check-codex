@@ -3,13 +3,15 @@
 <#
 .SYNOPSIS
 Calibrates local RTL cases against a healthy control and injected defect, then optionally measures repairs.
+.PARAMETER Mode
+Use testbench to measure which verification step detects each mutation. A failure expectation is optional in this mode.
 .PARAMETER Parallelism
 Maximum concurrent checker processes during calibration, from 1 to 8. Defaults to 1. Repair measurement runs serially.
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param (
     [Parameter(Mandatory)][string]$Manifest,
-    [ValidateSet('check', 'repair')][string]$Mode = 'check',
+    [ValidateSet('check', 'repair', 'testbench')][string]$Mode = 'check',
     [ValidateRange(1, 8)][int]$Parallelism = 1,
     [ValidateRange(1, 10)][int]$MaxAttempts = 3,
     [ValidateRange(1, 3600)][int]$TimeoutSeconds = 45,
@@ -24,7 +26,7 @@ Set-StrictMode -Version 3.0
 . (Join-Path $PSScriptRoot 'lib/Check.ps1')
 . (Join-Path $PSScriptRoot 'lib/Repair.ps1')
 
-function Read-RtlEvaluationCases([string]$Path) {
+function Read-RtlEvaluationCases([string]$Path, [string]$Mode) {
     $manifest = [IO.File]::ReadAllText($Path) | ConvertFrom-Json -AsHashtable
     if ($manifest -isnot [System.Collections.IDictionary] -or
         $manifest['cases'] -isnot [array] -or $manifest['cases'].Count -eq 0) {
@@ -42,16 +44,18 @@ function Read-RtlEvaluationCases([string]$Path) {
             throw "Case '$($case['id'])' must specify a nonempty mutations array."
         }
         $failure = $case['failure']
-        if ($failure -isnot [System.Collections.IDictionary] -or $failure['stage'] -isnot [string] -or
-            $failure['stage'] -cnotin @('compile', 'simulate', 'regression', 'synthesize', 'fit', 'timing', 'validation')) {
-            throw "Case '$($case['id'])' must name its expected failure stage."
-        }
-        foreach ($key in $failure.Keys) {
-            if ($key -ceq 'stage') { continue }
-            if ($key -ceq 'code' -and ($failure[$key] -is [int] -or $failure[$key] -is [long])) { continue }
-            if ($key -cin @('regression', 'reason', 'messageContains') -and $failure[$key] -is [string] -and
-                -not [string]::IsNullOrWhiteSpace($failure[$key])) { continue }
-            throw "Invalid failure expectation '$key' in case '$($case['id'])'."
+        if ($Mode -ne 'testbench' -or $case.Contains('failure')) {
+            if ($failure -isnot [System.Collections.IDictionary] -or $failure['stage'] -isnot [string] -or
+                $failure['stage'] -cnotin @('compile', 'simulate', 'regression', 'synthesize', 'fit', 'timing', 'validation')) {
+                throw "Case '$($case['id'])' must name its expected failure stage."
+            }
+            foreach ($key in $failure.Keys) {
+                if ($key -ceq 'stage') { continue }
+                if ($key -ceq 'code' -and ($failure[$key] -is [int] -or $failure[$key] -is [long])) { continue }
+                if ($key -cin @('regression', 'reason', 'messageContains') -and $failure[$key] -is [string] -and
+                    -not [string]::IsNullOrWhiteSpace($failure[$key])) { continue }
+                throw "Invalid failure expectation '$key' in case '$($case['id'])'."
+            }
         }
         $config = Resolve-RtlProjectItem $root $case['config']
         @{
@@ -173,13 +177,62 @@ function Get-RtlObservedFailure($Report) {
 }
 
 function Test-RtlExpectedFailure($Expected, $Observed) {
-    if (-not $Observed -or $Observed.timedOut) { return $false }
+    if (-not $Expected -or -not $Observed -or $Observed.timedOut) { return $false }
     foreach ($key in $Expected.Keys) {
         if ($key -ceq 'messageContains') {
             if (-not ([string]$Observed.message).Contains($Expected[$key], [StringComparison]::Ordinal)) { return $false }
         } elseif ($Expected[$key] -cne $Observed[$key]) { return $false }
     }
     return $true
+}
+
+function Get-RtlTestbenchDetection($Case, $Report) {
+    $result = [ordered]@{
+        outcome = 'inconclusive'; suite = $null; regression = $null; stage = $null
+        file = $null; line = $null; reason = $null
+    }
+    if ($Case.control.status -ne 'passed') {
+        $result.reason = 'control_failed'
+        return $result
+    }
+    if ($Case.fault.status -eq 'error' -or -not $Report) {
+        $result.reason = 'tool_error'
+        return $result
+    }
+    if (-not ($Case.controlSnapshotMatched -and $Case.faultSnapshotMatched)) {
+        $result.reason = 'snapshot_mismatch'
+        return $result
+    }
+
+    $check = $Report['initial']
+    if ($Report['status'] -eq 'passed') {
+        $simulated = $check['simulate'] -or ($check.regressions | Where-Object { $_.check['simulate'] } | Select-Object -First 1)
+        if ($simulated) { $result.outcome = 'survived' } else { $result.reason = 'no_simulation' }
+        return $result
+    }
+    $result.suite = 'primary'
+    if ($Report['stopReason'] -eq 'validation_failed') {
+        $result.suite = 'validation'
+        $check = $Report.validation
+    } elseif ($check['failedRegression']) {
+        $result.suite = 'regression'
+        $result.regression = $check.failedRegression
+        $check = $check.regressions[-1].check
+    }
+    $result.stage = $check.stage
+    $first = $check['firstError']
+    if ($first) { $result.file = $first['inputFile']; $result.line = $first['line'] }
+    if ($check.timedOut) { $result.reason = 'timeout' }
+    elseif ($check.stage -eq 'compile' -and $first) { $result.outcome = 'compile_rejected' }
+    elseif ($check.stage -in @('synthesize', 'fit', 'timing')) {
+        $result.suite = $null
+        $result.outcome = 'hardware_rejected'
+    }
+    elseif ($check.stage -eq 'simulate' -and $first -and $first['fromTestbench'] -and
+            $first['line'] -gt 0 -and $null -ne $first['simulationTime']) {
+        $result.outcome = if ($result.suite -eq 'validation') { 'validation_only' } else { 'public_detected' }
+    } else { $result.reason = 'no_located_testbench_error' }
+    return $result
 }
 
 $watch = [Diagnostics.Stopwatch]::StartNew()
@@ -199,12 +252,18 @@ $summary = [ordered]@{
     }
     metrics = $metrics; cases = @()
 }
+if ($Mode -eq 'testbench') {
+    $summary.detectionCounts = [ordered]@{
+        public_detected = 0; validation_only = 0; survived = 0
+        compile_rejected = 0; hardware_rejected = 0; inconclusive = 0
+    }
+}
 $exitCode = 2
 try {
     $summary.manifestPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Manifest)
-    $recipes = @(Read-RtlEvaluationCases $summary.manifestPath)
+    $recipes = @(Read-RtlEvaluationCases $summary.manifestPath $Mode)
     $metrics.totalCases = $recipes.Count
-    $metrics.repairableCases = @($recipes | Where-Object { $_.failure.stage -ne 'validation' }).Count
+    if ($Mode -ne 'testbench') { $metrics.repairableCases = @($recipes | Where-Object { $_.failure.stage -ne 'validation' }).Count }
     $output = if ($OutDir) { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutDir) }
     else { Join-Path ([IO.Path]::GetDirectoryName($summary.manifestPath)) '.rtlcheck-evaluation' }
     $runId = "$(Get-Date -Format 'yyyyMMdd-HHmmss')-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
@@ -233,12 +292,20 @@ try {
         $case.faultSnapshotMatched = Test-RtlEvaluationSnapshot $faultReport $case.inputFiles $case.faultInputSha256
         if ($case.control.status -eq 'passed' -and $case.controlSnapshotMatched) { $metrics.controlsPassed++ }
         $case.observedFailure = Get-RtlObservedFailure $faultReport
+        if ($Mode -eq 'testbench') {
+            $case.detection = Get-RtlTestbenchDetection $case $faultReport
+            $summary.detectionCounts[$case.detection.outcome]++
+        }
         if ($case.fault.status -eq 'failed' -and $case.faultSnapshotMatched -and
             (Test-RtlExpectedFailure $case.expectedFailure $case.observedFailure)) {
             $metrics.faultsAtExpectedStage++
         }
     }
-    if ($metrics.errors -or $metrics.controlsPassed -ne $metrics.totalCases -or $metrics.faultsAtExpectedStage -ne $metrics.totalCases) {
+    if ($Mode -eq 'testbench') {
+        if ($metrics.errors) { $summary.stopReason = 'tool_error' }
+        elseif ($summary.detectionCounts.inconclusive) { $summary.status = 'inconclusive'; $exitCode = 1 }
+        else { $summary.status = 'completed'; $exitCode = 0 }
+    } elseif ($metrics.errors -or $metrics.controlsPassed -ne $metrics.totalCases -or $metrics.faultsAtExpectedStage -ne $metrics.totalCases) {
         $summary.stopReason = 'calibration_failed'
         if (-not $metrics.errors) { $summary.status = 'failed'; $exitCode = 1 }
     } elseif ($Mode -eq 'check') {
@@ -300,7 +367,16 @@ if ($Json) { Write-Output $jsonReport }
 else {
     Write-Host "Evaluation $($summary.status)"
     Write-Host "Passing controls $($metrics.controlsPassed)/$($metrics.totalCases)"
-    Write-Host "Calibrated faults $($metrics.faultsAtExpectedStage)/$($metrics.totalCases)"
+    if ($Mode -eq 'testbench') {
+        foreach ($case in $summary.cases) {
+            if ($case['detection']) {
+                $detection = $case.detection
+                $location = if ($detection.file) { "$($detection.file):$($detection.line)" }
+                $details = @($case.id, $detection.outcome, $detection.regression, $location, $detection.reason) | Where-Object { $_ }
+                Write-Host ($details -join '  ')
+            }
+        }
+    } else { Write-Host "Calibrated faults $($metrics.faultsAtExpectedStage)/$($metrics.totalCases)" }
     if ($summary.repairReport) {
         Write-Host "Verified repairs $($metrics.repaired)/$($metrics.repairableCases)"
         Write-Host "Independent guards passed $($metrics.guardChecksPassed)"

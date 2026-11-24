@@ -1,0 +1,19 @@
+{
+  "top": "counter_tb",
+  "sources": ["counter.sv"],
+  "repairFiles": ["counter.sv"],
+  "testbenches": ["counter_tb.sv"],
+  "specification": "spec.txt",
+  "waveform": {
+    "signals": ["counter_tb.clk", "counter_tb.rst_n", "counter_tb.en", "counter_tb.count"],
+    "maxEvents": 6
+  },
+  "regressions": [
+    { "id": "hold-at-127", "top": "counter_hold_tb", "testbenches": ["counter_hold_tb.sv"], "passMarker": "HOLD_PASS" }
+  ],
+  "validation": {
+    "top": "counter_validation_tb",
+    "testbenches": ["counter_validation_tb.sv"],
+    "passMarker": "VALIDATION_PASS"
+  }
+}
